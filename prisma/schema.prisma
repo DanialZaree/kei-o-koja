@@ -1,0 +1,82 @@
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+enum EventStatus {
+  OPEN
+  FINALIZED
+}
+
+model Event {
+  id                 String        @id @default(cuid())
+  publicId           String        @unique
+  adminKey           String        // رشته تصادفی؛ عمداً بدون هش
+  title              String
+  description        String?
+  organizerName      String
+  status             EventStatus   @default(OPEN)
+  finalDateOptionId  String?
+  finalPlaceOptionId String?
+  finalizedAt        DateTime?
+  createdAt          DateTime      @default(now())
+  dateOptions        DateOption[]
+  placeOptions       PlaceOption[]
+  participants       Participant[]
+}
+
+model DateOption {
+  id        String     @id @default(cuid())
+  eventId   String
+  event     Event      @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  startsAt  DateTime   // UTC
+  createdAt DateTime   @default(now())
+  changedAt DateTime   @default(now())
+  votes     DateVote[]
+  @@index([eventId])
+}
+
+model PlaceOption {
+  id        String      @id @default(cuid())
+  eventId   String
+  event     Event       @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  name      String
+  url       String?
+  note      String?
+  createdAt DateTime    @default(now())
+  changedAt DateTime    @default(now())
+  votes     PlaceVote[]
+  @@index([eventId])
+}
+
+model Participant {
+  id         String      @id @default(cuid())
+  eventId    String
+  event      Event       @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  name       String
+  nameKey    String      // نام نرمال‌شده
+  createdAt  DateTime    @default(now())
+  dateVotes  DateVote[]
+  placeVotes PlaceVote[]
+  @@unique([eventId, nameKey])
+}
+
+model DateVote {
+  participantId String
+  dateOptionId  String
+  participant   Participant @relation(fields: [participantId], references: [id], onDelete: Cascade)
+  dateOption    DateOption  @relation(fields: [dateOptionId], references: [id], onDelete: Cascade)
+  @@id([participantId, dateOptionId])
+}
+
+model PlaceVote {
+  participantId String
+  placeOptionId String
+  participant   Participant @relation(fields: [participantId], references: [id], onDelete: Cascade)
+  placeOption   PlaceOption @relation(fields: [placeOptionId], references: [id], onDelete: Cascade)
+  @@id([participantId, placeOptionId])
+}
