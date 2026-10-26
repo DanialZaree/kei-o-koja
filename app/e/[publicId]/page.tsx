@@ -1,10 +1,11 @@
 import type { Metadata } from "next";
 import { notFound } from "next/navigation";
 import Link from "next/link";
+import { headers } from "next/headers";
 import { prisma } from "@/lib/db";
 import { calculateResults } from "@/lib/results";
 import { formatJalaliDateTime } from "@/lib/dates";
-import { CopyButton } from "@/components/CopyButton";
+import { CopyButton, UrlCode } from "@/components/CopyButton";
 import { VoteForm } from "@/components/VoteForm";
 import { ResultsList } from "@/components/ResultsList";
 import { OrganizerPanel } from "@/components/OrganizerPanel";
@@ -84,10 +85,18 @@ export default async function EventPage({ params, searchParams }: PageProps) {
     ? event.placeOptions.find((p) => p.id === event.finalPlaceOptionId)
     : null;
 
+  const headersList = headers();
+  const host = headersList.get("x-forwarded-host") || headersList.get("host") || "";
+  const proto = headersList.get("x-forwarded-proto") || (host.startsWith("localhost") ? "http" : "https");
+  const origin = host ? `${proto}://${host}` : (process.env.NEXT_PUBLIC_SITE_URL || "");
+
+  const publicUrl = origin ? `${origin}/e/${event.publicId}` : `/e/${event.publicId}`;
+  const adminUrl = origin ? `${origin}/e/${event.publicId}?admin=${event.adminKey}` : `/e/${event.publicId}?admin=${event.adminKey}`;
+
   const finalMessageText = `قرار دورهمی: ${event.title}
 زمان: ${finalDate ? formatJalaliDateTime(finalDate.startsAt) : ""}
 ${finalPlace ? `مکان: ${finalPlace.name}${finalPlace.url ? ` (${finalPlace.url})` : ""}` : ""}
-مشاهده دورهمی: /e/${event.publicId}`;
+مشاهده دورهمی: ${publicUrl}`;
 
   return (
     <main className="space-y-6">
@@ -214,14 +223,12 @@ ${finalPlace ? `مکان: ${finalPlace.name}${finalPlace.url ? ` (${finalPlace.u
                 لینک دورهمی (برای دوستان)
               </span>
               <div className="flex items-center justify-between gap-2 flex-wrap">
-                <code
-                  dir="ltr"
+                <UrlCode
+                  url={publicUrl}
                   className="text-xs bg-white px-2.5 py-1.5 rounded-lg border border-secondary-300 text-accent-300 break-all"
-                >
-                  {`/e/${event.publicId}`}
-                </code>
+                />
                 <CopyButton
-                  textToCopy={typeof window !== "undefined" ? window.location.origin + `/e/${event.publicId}` : `/e/${event.publicId}`}
+                  textToCopy={publicUrl}
                   label="کپی لینک عمومی"
                   showShare={true}
                   shareTitle={event.title}
@@ -234,14 +241,12 @@ ${finalPlace ? `مکان: ${finalPlace.name}${finalPlace.url ? ` (${finalPlace.u
                 لینک مدیریت (فقط برای خودت)
               </span>
               <div className="flex items-center justify-between gap-2 flex-wrap">
-                <code
-                  dir="ltr"
+                <UrlCode
+                  url={adminUrl}
                   className="text-xs bg-white px-2.5 py-1.5 rounded-lg border border-secondary-300 text-accent-300 break-all"
-                >
-                  {`/e/${event.publicId}?admin=${event.adminKey}`}
-                </code>
+                />
                 <CopyButton
-                  textToCopy={typeof window !== "undefined" ? window.location.origin + `/e/${event.publicId}?admin=${event.adminKey}` : `/e/${event.publicId}?admin=${event.adminKey}`}
+                  textToCopy={adminUrl}
                   label="کپی لینک مدیریت"
                 />
               </div>

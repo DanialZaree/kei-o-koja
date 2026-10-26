@@ -12,6 +12,30 @@ interface CopyButtonProps {
   shareTitle?: string;
 }
 
+export function UrlCode({
+  url,
+  className = "",
+}: {
+  url: string;
+  className?: string;
+}) {
+  const [displayUrl, setDisplayUrl] = useState(url);
+
+  useEffect(() => {
+    if (typeof window !== "undefined" && url.startsWith("/")) {
+      setDisplayUrl(`${window.location.origin}${url}`);
+    } else {
+      setDisplayUrl(url);
+    }
+  }, [url]);
+
+  return (
+    <code dir="ltr" className={className}>
+      {displayUrl}
+    </code>
+  );
+}
+
 export function CopyButton({
   textToCopy,
   label = "کپی لینک",
@@ -30,15 +54,26 @@ export function CopyButton({
     }
   }, []);
 
+  const resolveUrl = (text: string) => {
+    if (typeof window !== "undefined") {
+      if (text.startsWith("/")) {
+        return `${window.location.origin}${text}`;
+      }
+      return text.replace(/(\s|^)\/e\//g, `$1${window.location.origin}/e/`);
+    }
+    return text;
+  };
+
   const handleCopy = async () => {
+    const text = resolveUrl(textToCopy);
     try {
-      await navigator.clipboard.writeText(textToCopy);
+      await navigator.clipboard.writeText(text);
       setCopied(true);
       setTimeout(() => setCopied(false), 2000);
     } catch {
       // Fallback
       const textarea = document.createElement("textarea");
-      textarea.value = textToCopy;
+      textarea.value = text;
       textarea.style.position = "fixed";
       textarea.style.opacity = "0";
       document.body.appendChild(textarea);
@@ -58,7 +93,7 @@ export function CopyButton({
       try {
         await navigator.share({
           title: shareTitle || "لینک دورهمی",
-          url: textToCopy,
+          url: resolveUrl(textToCopy),
         });
       } catch {
         // User cancelled share
