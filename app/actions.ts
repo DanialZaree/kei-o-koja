@@ -15,6 +15,8 @@ import {
   validateDateOptionInput,
   validatePlaceOptionInput,
 } from "@/lib/validate";
+import { formatJalaliDateTime } from "@/lib/dates";
+import { sendTelegramNotification } from "@/lib/telegram";
 
 export interface ActionResult<T = unknown> {
   ok: boolean;
@@ -339,6 +341,15 @@ export async function updateDateOptionAction(
     });
 
     revalidatePath(`/e/${publicId}`);
+
+    if (event.telegramChatId) {
+      const origin = process.env.NEXT_PUBLIC_SITE_URL || "";
+      sendTelegramNotification(
+        event.telegramChatId,
+        `📢 <b>تغییر زمان در دورهمی «${event.title}»</b>\n\nیک تاریخ پیشنهادی به <b>${formatJalaliDateTime(validStartsAt)}</b> ویرایش شد و آرای آن بازنشانی شدند.\n\n🔗 <a href="${origin}/e/${publicId}">مشاهده و ثبت نظر جدید</a>`
+      );
+    }
+
     return { ok: true };
   } catch (error) {
     console.error("Error updating date option:", error);
@@ -485,6 +496,15 @@ export async function updatePlaceOptionAction(
     });
 
     revalidatePath(`/e/${publicId}`);
+
+    if (event.telegramChatId) {
+      const origin = process.env.NEXT_PUBLIC_SITE_URL || "";
+      sendTelegramNotification(
+        event.telegramChatId,
+        `📢 <b>تغییر مکان در دورهمی «${event.title}»</b>\n\nمکان دورهمی به <b>${validPlaceData.name}</b> به‌روزرسانی شد.\n\n🔗 <a href="${origin}/e/${publicId}">مشاهده دورهمی</a>`
+      );
+    }
+
     return { ok: true };
   } catch (error) {
     console.error("Error updating place option:", error);
@@ -551,11 +571,11 @@ export async function finalizeEventAction(
   }
 
   // If places exist, placeId is required
+  const validPlace = placeId ? event.placeOptions.find((p) => p.id === placeId) : null;
   if (event.placeOptions.length > 0) {
     if (!placeId) {
       return { ok: false, errors: { general: "انتخاب مکان نهایی الزامی است." } };
     }
-    const validPlace = event.placeOptions.find((p) => p.id === placeId);
     if (!validPlace) {
       return { ok: false, errors: { general: "مکان نهایی انتخاب شده نامعتبر است." } };
     }
@@ -573,6 +593,15 @@ export async function finalizeEventAction(
     });
 
     revalidatePath(`/e/${publicId}`);
+
+    if (event.telegramChatId) {
+      const origin = process.env.NEXT_PUBLIC_SITE_URL || "";
+      sendTelegramNotification(
+        event.telegramChatId,
+        `🎉 <b>قرار دورهمی «${event.title}» نهایی شد!</b>\n\n🗓 <b>زمان قطعی:</b> ${formatJalaliDateTime(validDate.startsAt)}\n${validPlace ? `📍 <b>مکان قطعی:</b> ${validPlace.name}\n` : ""}\n🔗 <a href="${origin}/e/${publicId}">مشاهده صفحه نهایی دورهمی</a>`
+      );
+    }
+
     return { ok: true };
   } catch (error) {
     console.error("Error finalizing event:", error);

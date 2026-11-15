@@ -24,6 +24,8 @@ model Event {
   finalPlaceOptionId String?
   finalizedAt        DateTime?
   createdAt          DateTime      @default(now())
+  telegramChatId     String?
+  telegramMessageId  String?
   dateOptions        DateOption[]
   placeOptions       PlaceOption[]
   participants       Participant[]
