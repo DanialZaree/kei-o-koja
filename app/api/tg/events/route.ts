@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
 import { generateAdminKey, generatePublicId, cleanDisplayName } from "@/lib/text";
 import { validateCreateEventInput } from "@/lib/validate";
+import { parseFlexibleDate } from "@/lib/dates";
 
 export async function GET(request: Request) {
   const { searchParams } = new URL(request.url);
@@ -45,12 +46,31 @@ export async function POST(request: Request) {
     const body = await request.json();
     const { title, organizerName, description, dates, places, telegramChatId } = body;
 
+    const rawDates = Array.isArray(dates) ? dates : [];
+    const normalizedDates = rawDates.map((d: any) => {
+      if (typeof d === "string") {
+        return parseFlexibleDate(d).toISOString();
+      }
+      return d;
+    });
+
+    const rawPlaces = Array.isArray(places) ? places : [];
+    const normalizedPlaces = rawPlaces.map((p: any) => {
+      if (typeof p === "string") {
+        return { name: p };
+      }
+      return p;
+    });
+
     const validation = validateCreateEventInput({
       title,
       description,
       organizerName,
-      dates,
-      places,
+      dates:
+        normalizedDates.length > 0
+          ? normalizedDates
+          : [new Date(Date.now() + 24 * 3600 * 1000).toISOString()],
+      places: normalizedPlaces,
     });
 
     if (!validation.ok || !validation.data) {

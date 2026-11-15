@@ -129,3 +129,63 @@ export function formatJalaliDateTime(dateInput: Date | string): string {
     return date.toLocaleString("fa-IR");
   }
 }
+
+export function parseFlexibleDate(input?: string | null): Date {
+  if (!input || typeof input !== "string") {
+    return new Date(Date.now() + 24 * 3600 * 1000);
+  }
+
+  const direct = new Date(input);
+  if (!isNaN(direct.getTime()) && direct.getFullYear() >= 2024) {
+    return direct;
+  }
+
+  const text = input.trim();
+  const timeMatch = text.match(/(\d{1,2}):(\d{2})/);
+  const timeStr = timeMatch
+    ? `${timeMatch[1].padStart(2, "0")}:${timeMatch[2]}`
+    : "19:00";
+
+  const weekdays = [
+    { name: "شنبه", dayIdx: 0 },
+    { name: "یکشنبه", dayIdx: 1 },
+    { name: "دوشنبه", dayIdx: 2 },
+    { name: "سه‌شنبه", dayIdx: 3 },
+    { name: "چهارشنبه", dayIdx: 4 },
+    { name: "پنج‌شنبه", dayIdx: 5 },
+    { name: "پنجشنبه", dayIdx: 5 },
+    { name: "جمعه", dayIdx: 6 },
+  ];
+
+  const current = getCurrentTehranJalali();
+  const currentWeekday = getJalaliWeekdayIndex(
+    current.jy,
+    current.jm,
+    current.jd
+  );
+
+  let targetDayIdx = -1;
+  for (const w of weekdays) {
+    if (text.includes(w.name)) {
+      targetDayIdx = w.dayIdx;
+      break;
+    }
+  }
+
+  let daysToAdd = 1;
+  if (targetDayIdx !== -1) {
+    daysToAdd = (targetDayIdx - currentWeekday + 7) % 7;
+    if (daysToAdd === 0) daysToAdd = 7;
+  } else if (text.includes("فردا")) {
+    daysToAdd = 1;
+  } else if (text.includes("پس‌فردا")) {
+    daysToAdd = 2;
+  }
+
+  const baseDate = toGregorianDate(current.jy, current.jm, current.jd);
+  const targetDate = new Date(
+    baseDate.getTime() + daysToAdd * 24 * 3600 * 1000
+  );
+  const parts = utcDateToJalaaliParts(targetDate);
+  return jalaaliToUtcDate(parts.jy, parts.jm, parts.jd, timeStr);
+}

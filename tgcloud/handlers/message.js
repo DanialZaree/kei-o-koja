@@ -537,7 +537,28 @@ export default async function (message, ctx) {
 }
 
 export async function createAndSendGathering(currentChatId, targetChatId, title, organizerName, dates, places) {
-  const publicId = Math.random().toString(36).substring(2, 10);
+  let publicId = Math.random().toString(36).substring(2, 10);
+
+  // Sync to PostgreSQL database via Next.js API so website link works immediately!
+  try {
+    const res = await fetch(`${SITE_URL}/api/tg/events`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        title,
+        organizerName,
+        telegramChatId: targetChatId,
+        dates: dates,
+        places: places.map((p) => (typeof p === 'string' ? { name: p } : p)),
+      }),
+    });
+    const json = await res.json();
+    if (json && json.ok && json.event?.publicId) {
+      publicId = json.event.publicId;
+    }
+  } catch (err) {
+    console.error('Failed to sync event creation to Next.js:', err);
+  }
 
   // Clean old event for this targetChat
   try {

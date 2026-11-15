@@ -5,7 +5,7 @@ export default async function (input, ctx) {
 
   // 1. Set Bot Profile Photo (using square logo)
   try {
-    const photoUrl = input?.photoUrl || 'https://raw.githubusercontent.com/DanialZaree/kei-o-koja/main/public/logo.png';
+    const photoUrl = input?.photoUrl || 'https://raw.githubusercontent.com/DanialZaree/kei-o-koja/main/public/logo_white_bg.png';
     const res = await fetch(photoUrl);
     if (res.ok) {
       const chunks = [];
@@ -83,3 +83,4 @@ export default async function (input, ctx) {
 
   return { ok: true, results };
 }
+
