@@ -108,9 +108,14 @@ ${finalPlace ? `مکان: ${finalPlace.name}${finalPlace.url ? ` (${finalPlace.u
             <div className="flex items-center gap-2">
               <Link
                 href="/"
-                className="text-xs text-brand-600 hover:underline font-semibold"
+                className="text-xs text-brand-600 hover:underline font-semibold flex items-center gap-1.5"
               >
-                ← کی و کجا
+                <img
+                  src="/logo.png"
+                  alt="کی و کجا"
+                  className="w-5 h-5 rounded-md inline-block object-contain"
+                />
+                <span>← کی و کجا</span>
               </Link>
             </div>
             <h1 className="text-xl sm:text-2xl font-bold text-accent-400">

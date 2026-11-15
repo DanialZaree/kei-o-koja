@@ -5,6 +5,13 @@ export const metadata: Metadata = {
   title: "کی و کجا | بالاخره یه قرار درست‌وحسابی!",
   description:
     "«کی و کجا» به چند دوست کمک می‌کند برای یک دورهمی زمان و مکان انتخاب کنند. بدون نیاز به ثبت‌نام و ورود.",
+  icons: {
+    icon: [
+      { url: "/favicon.ico" },
+      { url: "/favicon.png", type: "image/png" },
+    ],
+    apple: "/apple-icon.png",
+  },
 };
 
 export default function RootLayout({
