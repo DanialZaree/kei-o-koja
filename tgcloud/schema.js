@@ -27,5 +27,6 @@ export const botSessions = table('bot_sessions', {
   step: text('step').notNull(), // 'awaiting_title' | 'awaiting_dates' | 'awaiting_places'
   draftTitle: text('draft_title'),
   draftDatesJson: text('draft_dates_json'),
+  draftPlacesJson: text('draft_places_json'),
   updatedAt: integer('updated_at').notNull(),
 });

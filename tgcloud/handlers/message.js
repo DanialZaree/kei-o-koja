@@ -12,21 +12,23 @@ export default async function (message, ctx) {
   const isGroup = message.chat.type === 'group' || message.chat.type === 'supergroup';
   const senderName = message.from?.first_name || 'دوست عزیز';
 
-  // 1. Bot added to group
+  // 1. Bot added to group or new members
   if (message.new_chat_members?.some((m) => m.username === 'keiokojabot')) {
     await api.sendMessage({
       chat_id: chatId,
       text:
         `👋 <b>سلام به همه اعضای گروه!</b>\n\n` +
         `من ربات <b>«کی و کجا»</b> هستم 🗓️\n` +
-        `دیگه نیازی به کل‌کل و گم شدن پیام‌ها نیست! برای ساخت دورهمی کافیه بنویسید:\n\n` +
+        `دیگه نیازی به کل‌کل و پیام‌های طولانی نیست! همه‌چیز رو با رأی‌گیری و اطلاع‌رسانی خودکار هماهنگ می‌کنیم.\n\n` +
+        `🔹 برای ساخت دورهمی جدید:\n` +
         `<code>/new عنوان دورهمی</code>\n\n` +
-        `یا در یک خط همراه با تاریخ و مکان:\n` +
-        `<code>/new کافه | پنج‌شنبه ۱۹:۰۰، جمعه ۱۸:۰۰ | کافه نادری</code>`,
+        `🔹 ساخت سریع یک‌خطی با زمان و مکان:\n` +
+        `<code>/new کافه‌گردی | پنج‌شنبه ۱۹:۰۰، جمعه ۱۸:۰۰ | کافه نادری</code>\n\n` +
+        `🔹 یا اگر از سایت رویداد ساختید، دکمه «اتصال به گروه» را از سایت بزنید.`,
       parse_mode: 'HTML',
       reply_markup: {
         inline_keyboard: [
-          [{ text: '➕ ساخت دورهمی با زمان و مکان دلخواه', callback_data: 'cmd:new' }],
+          [{ text: '➕ ساخت دورهمی جدید', callback_data: 'cmd:new' }],
           [{ text: '🌐 وبسایت کی و کجا', url: SITE_URL }],
         ],
       },
@@ -36,135 +38,149 @@ export default async function (message, ctx) {
 
   // 2. Command: /cancel (Cancel active session)
   if (text === '/cancel' || text === 'انصراف' || text === 'لغو') {
-    await db.delete(botSessions).where(eq(botSessions.userId, userId)).run();
+    try {
+      await db.delete(botSessions).where(eq(botSessions.userId, userId)).run();
+    } catch (e) {}
     await api.sendMessage({
       chat_id: chatId,
-      text: 'عملیات ساخت دورهمی لغو شد.',
+      text: 'عملیات ساخت دورهمی لغو شد. هر زمان خواستی بنویس: /new',
     });
     return;
   }
 
-  // 3. Check for active multi-step wizard session
-  const activeSession = await db.select()
-    .from(botSessions)
-    .where(eq(botSessions.userId, userId))
-    .get();
-
-  if (activeSession && !text.startsWith('/')) {
-    // Step A: Awaiting Title
-    if (activeSession.step === 'awaiting_title') {
-      const title = text;
-      await db.update(botSessions)
-        .set({
-          draftTitle: title,
-          step: 'awaiting_dates',
-          updatedAt: Date.now(),
-        })
-        .where(eq(botSessions.userId, userId))
-        .run();
-
-      await api.sendMessage({
-        chat_id: chatId,
-        text:
-          `عالی! عنوان: <b>${title}</b>\n\n` +
-          `🗓️ حالا <b>تاریخ‌ها و ساعت‌های پیشنهادی</b> رو بفرست.\n` +
-          `هر زمان رو توی یک خط بنویس یا با ویرگول (،) جدا کن.\n\n` +
-          `مثال:\n` +
-          `<code>پنج‌شنبه ساعت ۱۹:۰۰\nجمعه ساعت ۱۸:۳۰\nشنبه ساعت ۲۰:۰۰</code>`,
-        parse_mode: 'HTML',
-      });
-      return;
-    }
-
-    // Step B: Awaiting Dates
-    if (activeSession.step === 'awaiting_dates') {
-      const rawDates = text.split(/[\n,،]/).map((d) => d.trim()).filter((d) => d.length > 0);
-
-      if (rawDates.length === 0) {
-        await api.sendMessage({
-          chat_id: chatId,
-          text: 'لطفاً حداقل یک تاریخ یا ساعت پیشنهادی بفرستید (مثلاً: پنج‌شنبه ساعت ۱۹:۰۰).',
-        });
-        return;
-      }
-
-      await db.update(botSessions)
-        .set({
-          draftDatesJson: JSON.stringify(rawDates),
-          step: 'awaiting_places',
-          updatedAt: Date.now(),
-        })
-        .where(eq(botSessions.userId, userId))
-        .run();
-
-      await api.sendMessage({
-        chat_id: chatId,
-        text:
-          `زمان‌های پیشنهادی ثبت شد (${toPersianDigits(rawDates.length)} مورد).\n\n` +
-          `📍 حالا <b>مکان‌های پیشنهادی</b> رو بفرست (هر کدوم در یک خط یا با ویرگول).\n` +
-          `اگر هنوز مکان مشخص نیست، کافیه کلمه <b>«رد»</b> رو بفرستی.\n\n` +
-          `مثال:\n` +
-          `<code>کافه نادری\nکافه لمیز میدان ولیعصر</code>`,
-        parse_mode: 'HTML',
-      });
-      return;
-    }
-
-    // Step C: Awaiting Places -> Create Event!
-    if (activeSession.step === 'awaiting_places') {
-      let rawPlaces = [];
-      const cleanText = text.trim();
-      if (cleanText !== 'رد' && cleanText !== 'ندارد' && cleanText !== 'خالی') {
-        rawPlaces = cleanText.split(/[\n,،]/).map((p) => p.trim()).filter((p) => p.length > 0);
-      }
-
-      const title = activeSession.draftTitle || 'دورهمی دوستانه';
-      const dates = JSON.parse(activeSession.draftDatesJson || '["پنج‌شنبه ۱۹:۰۰"]');
-      const places = rawPlaces;
-      const targetChatId = activeSession.chatId;
-
-      // Clean session
-      await db.delete(botSessions).where(eq(botSessions.userId, userId)).run();
-
-      // Create gathering
-      await createAndSendGathering(chatId, targetChatId, title, senderName, dates, places);
-      return;
-    }
-  }
-
-  // 4. Command: /start
+  // 3. Command: /start (Supports deep linking from website: /start event_<publicId>)
   if (text.startsWith('/start')) {
+    const parts = text.split(/\s+/);
+    const startParam = parts[1] || '';
+
+    // A: Event link from website! (e.g. /start event_x1y2z3)
+    if (startParam.startsWith('event_')) {
+      const publicId = startParam.replace('event_', '').trim();
+      try {
+        const res = await fetch(`${SITE_URL}/api/tg/events/${publicId}`);
+        const data = await res.json();
+
+        if (data && data.ok && data.event) {
+          const ev = data.event;
+          const dates = (data.results?.dates || []).map((d) => d.label || d.dateIso);
+          const places = (data.results?.places || []).map((p) => p.name);
+
+          // Remove prior event link for this chat
+          await db.delete(chatEvents).where(eq(chatEvents.chatId, String(chatId))).run();
+
+          // Link chat to event in SQLite
+          await db.insert(chatEvents).values({
+            chatId: String(chatId),
+            publicId,
+            title: ev.title,
+            organizerName: ev.organizerName,
+            datesJson: JSON.stringify(dates.length > 0 ? dates : ['زمان در سایت مشخص شده']),
+            placesJson: JSON.stringify(places),
+            status: ev.status || 'OPEN',
+          }).run();
+
+          // Notify Next.js backend to save telegramChatId
+          try {
+            await fetch(`${SITE_URL}/api/tg/events/${publicId}`, {
+              method: 'PATCH',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ chatId: String(chatId) }),
+            });
+          } catch (patchErr) {
+            console.error('PATCH Next.js failed:', patchErr);
+          }
+
+          let cardText =
+            `🎉 <b>این گروه با موفقیت به دورهمی «${ev.title}» متصل شد!</b>\n` +
+            `👤 برگزارکننده: <b>${ev.organizerName}</b>\n\n`;
+
+          if (dates.length > 0) {
+            cardText += `📅 <b>زمان‌های پیشنهادی:</b>\n` +
+              dates.map((d, i) => `<b>${toPersianDigits(i + 1)}.</b> ${d}`).join('\n') + `\n\n`;
+          }
+
+          if (places.length > 0) {
+            cardText += `📍 <b>مکان‌های پیشنهادی:</b>\n` +
+              places.map((p) => `• ${p}`).join('\n') + `\n\n`;
+          }
+
+          cardText +=
+            `🔔 <b>اطلاع‌رسانی خودکار فعال است:</b> هرگونه تغییر زمان، مکان یا ثبت تصمیم نهایی در سایت، خودکار در همین گروه اعلام می‌شود.\n\n` +
+            `👇 <i>برای ثبت نظر همین حالا روی گزینه‌ها کلیک کنید:</i>`;
+
+          const keyboard = dates.map((d, i) => [
+            { text: `⚡ رأی به زمان: ${d}`, callback_data: `vote:${publicId}:${i}` },
+          ]);
+
+          if (places.length > 0) {
+            places.forEach((p, i) => {
+              keyboard.push([
+                { text: `📍 رأی به مکان: ${p}`, callback_data: `place_vote:${publicId}:${i}` },
+              ]);
+            });
+          }
+
+          keyboard.push([
+            { text: '📊 آمار آرا و اسامی', callback_data: `stats:${publicId}` },
+            { text: '🔄 به‌روزرسانی', callback_data: `refresh:${publicId}` },
+          ]);
+
+          keyboard.push([
+            { text: '🌐 مشاهده در وبسایت کی و کجا', url: `${SITE_URL}/e/${publicId}` },
+          ]);
+
+          const sent = await api.sendMessage({
+            chat_id: chatId,
+            text: cardText,
+            parse_mode: 'HTML',
+            reply_markup: { inline_keyboard: keyboard },
+          });
+
+          await db.update(chatEvents)
+            .set({ messageId: sent.message_id })
+            .where(eq(chatEvents.publicId, publicId))
+            .run();
+
+          return;
+        }
+      } catch (err) {
+        console.error('Error fetching event for startgroup:', err);
+      }
+    }
+
+    // B: Normal /start in group
     if (isGroup) {
       await api.sendMessage({
         chat_id: chatId,
         text:
           `👋 <b>ربات «کی و کجا» در خدمت گروه شماست!</b>\n\n` +
-          `برای ایجاد یک دورهمی با زمان و مکان دلخواه بنویسید:\n` +
+          `🔹 ساخت دورهمی با دکمه یا متن:\n` +
           `<code>/new عنوان دورهمی</code>\n\n` +
-          `یا به صورت یک‌خطی کامل:\n` +
+          `🔹 ساخت سریع یک‌خطی:\n` +
           `<code>/new کافه‌گردی | پنج‌شنبه ۱۹:۰۰، جمعه ۱۸:۰۰ | کافه نادری</code>`,
         parse_mode: 'HTML',
         reply_markup: {
           inline_keyboard: [
             [{ text: '➕ شروع ساخت دورهمی', callback_data: 'cmd:new' }],
+            [{ text: '🌐 ورود به سایت', url: SITE_URL }],
           ],
         },
       });
       return;
     }
 
-    // Private chat
+    // C: Normal /start in private chat
     await api.sendMessage({
       chat_id: chatId,
       text:
         `سلام <b>${senderName}</b> عزیز! 👋\n\n` +
         `به ربات <b>«کی و کجا»</b> خوش آمدید 🗓️\n\n` +
-        `اینجا می‌تونی با زمان‌ها و مکان‌های دلخواهت دورهمی بسازی، نظرسنجی کنی و با دوستانت به تصمیم قطعی برسی.\n\n` +
-        `• برای شروع ساخت دورهمی، روی دکمه زیر بزن یا بنویس: <code>/new</code>`,
+        `با این ربات می‌توانید به راحتی زمان و مکان‌های پیشنهادی را برای دورهمی مطرح کنید، نظرسنجی کنید و با دوستانتان به تصمیم قطعی برسید.\n\n` +
+        `• برای شروع، روی دکمه زیر بزنید یا بنویسید: <code>/new</code>`,
       parse_mode: 'HTML',
       reply_markup: {
         inline_keyboard: [
-          [{ text: '➕ ساخت دورهمی با زمان و مکان دلخواه', callback_data: 'cmd:new' }],
+          [{ text: '➕ ساخت دورهمی جدید', callback_data: 'cmd:new' }],
           [{ text: '👥 افزودن ربات به گروه دوستان', url: 'https://t.me/keiokojabot?startgroup=true' }],
           [{ text: '🌐 ورود به وبسایت کی و کجا', url: SITE_URL }],
         ],
@@ -173,11 +189,16 @@ export default async function (message, ctx) {
     return;
   }
 
-  // 5. Command: /new or /create
+  // 4. Command: /new or /create
   if (text.startsWith('/new') || text.startsWith('/create')) {
     const rawInput = text.replace(/^(\/new|\/create)(@keiokojabot)?/i, '').trim();
 
-    // Check if user used one-line pipe format: /new Title | Dates | Places
+    // Reset previous session safely
+    try {
+      await db.delete(botSessions).where(eq(botSessions.userId, userId)).run();
+    } catch (e) {}
+
+    // A: One-line pipe format: /new Title | Dates | Places
     if (rawInput.includes('|')) {
       const parts = rawInput.split('|').map((p) => p.trim());
       const title = parts[0] || 'دورهمی دوستانه';
@@ -195,14 +216,15 @@ export default async function (message, ctx) {
       return;
     }
 
-    // If title was given on command line, e.g. "/new کوهنوردی توچال"
+    // B: Title supplied on command line: /new کافه‌گردی
     if (rawInput.length > 0) {
-      // Save session with this title and ask for dates!
       await db.insert(botSessions).values({
         userId,
         chatId: String(chatId),
         step: 'awaiting_dates',
         draftTitle: rawInput,
+        draftDatesJson: JSON.stringify([]),
+        draftPlacesJson: JSON.stringify([]),
         updatedAt: Date.now(),
       }).run();
 
@@ -210,33 +232,200 @@ export default async function (message, ctx) {
         chat_id: chatId,
         text:
           `عنوان: <b>${rawInput}</b> ✍️\n\n` +
-          `🗓️ حالا <b>تاریخ‌ها و ساعت‌های پیشنهادی</b> رو بفرست.\n` +
-          `هر کدوم رو در یک خط بنویس یا با ویرگول جدا کن.\n\n` +
-          `مثال:\n` +
-          `<code>پنج‌شنبه ساعت ۱۹:۰۰\nجمعه ساعت ۱۸:۳۰\nشنبه ساعت ۲۰:۰۰</code>`,
+          `🗓️ حالا <b>زمان‌های پیشنهادی</b> را با دکمه‌های زیر انتخاب کنید یا در پاسخ همین پیام تایپ کنید:\n` +
+          `<i>(می‌توانید چند زمان را با ویرگول یا خط جدید بنویسید)</i>`,
         parse_mode: 'HTML',
+        reply_markup: {
+          inline_keyboard: [
+            [
+              { text: 'پنج‌شنبه ۱۹:۰۰', callback_data: 'add_date:پنج‌شنبه ۱۹:۰۰' },
+              { text: 'پنج‌شنبه ۲۱:۰۰', callback_data: 'add_date:پنج‌شنبه ۲۱:۰۰' },
+            ],
+            [
+              { text: 'جمعه ۱۷:۰۰', callback_data: 'add_date:جمعه ۱۷:۰۰' },
+              { text: 'جمعه ۱۹:۰۰', callback_data: 'add_date:جمعه ۱۹:۰۰' },
+            ],
+            [
+              { text: 'شنبه ۱۸:۰۰', callback_data: 'add_date:شنبه ۱۸:۰۰' },
+              { text: 'یکشنبه ۱۹:۰۰', callback_data: 'add_date:یکشنبه ۱۹:۰۰' },
+            ],
+            [
+              { text: '✅ اتمام انتخاب زمان و مرحله بعد', callback_data: 'done_dates' },
+            ],
+          ],
+        },
       });
       return;
     }
 
-    // No arguments: Start step 1
+    // C: No arguments -> Prompt for Title with quick suggestion buttons
     await db.insert(botSessions).values({
       userId,
       chatId: String(chatId),
       step: 'awaiting_title',
+      draftDatesJson: JSON.stringify([]),
+      draftPlacesJson: JSON.stringify([]),
       updatedAt: Date.now(),
     }).run();
 
     await api.sendMessage({
       chat_id: chatId,
       text:
-        `📌 <b>ساخت دورهمی جدید</b>\n\n` +
-        `عنوان دورهمی رو بفرست:\n` +
-        `(مثلاً: <code>کافه‌گردی آخر هفته</code> یا <code>فوتسال سه‌شنبه</code>)\n\n` +
-        `<i>برای لغو در هر مرحله، کلمه /cancel را ارسال کنید.</i>`,
+        `📌 <b>گام ۱ از ۳: عنوان دورهمی</b>\n\n` +
+        `عنوان دورهمی را تایپ کنید یا از گزینه‌های سریع زیر انتخاب کنید:\n\n` +
+        `<i>برای لغو در هر مرحله، /cancel را ارسال کنید.</i>`,
       parse_mode: 'HTML',
+      reply_markup: {
+        inline_keyboard: [
+          [
+            { text: '☕ کافه‌گردی', callback_data: 'preset_title:کافه‌گردی' },
+            { text: '🍕 شام و رستوران', callback_data: 'preset_title:شام و رستوران' },
+          ],
+          [
+            { text: '⚽ فوتسال و ورزش', callback_data: 'preset_title:فوتسال' },
+            { text: '🎲 بردگیم و بازی', callback_data: 'preset_title:بردگیم' },
+          ],
+          [
+            { text: '🎬 سینما', callback_data: 'preset_title:سینما' },
+            { text: '🏞️ طبیعت‌گردی', callback_data: 'preset_title:طبیعت‌گردی' },
+          ],
+        ],
+      },
     });
     return;
+  }
+
+  // 5. Active conversational session input
+  const activeSession = await db.select()
+    .from(botSessions)
+    .where(eq(botSessions.userId, userId))
+    .get();
+
+  if (activeSession && !text.startsWith('/')) {
+    // Step 1: Title input
+    if (activeSession.step === 'awaiting_title') {
+      const title = text;
+      await db.update(botSessions)
+        .set({
+          draftTitle: title,
+          step: 'awaiting_dates',
+          draftDatesJson: JSON.stringify([]),
+          updatedAt: Date.now(),
+        })
+        .where(eq(botSessions.userId, userId))
+        .run();
+
+      await api.sendMessage({
+        chat_id: chatId,
+        text:
+          `عالی! عنوان: <b>${title}</b>\n\n` +
+          `🗓️ <b>گام ۲ از ۳: تاریخ‌ها و ساعت‌های پیشنهادی</b>\n` +
+          `می‌توانید از دکمه‌های سریع زیر استفاده کنید یا زمان‌های دلخواهتان را ارسال کنید (هر کدوم در یک خط یا با ویرگول):\n\n` +
+          `مثال: <code>پنج‌شنبه ۱۹:۰۰، جمعه ۱۸:۰۰</code>`,
+        parse_mode: 'HTML',
+        reply_markup: {
+          inline_keyboard: [
+            [
+              { text: 'پنج‌شنبه ۱۹:۰۰', callback_data: 'add_date:پنج‌شنبه ۱۹:۰۰' },
+              { text: 'پنج‌شنبه ۲۱:۰۰', callback_data: 'add_date:پنج‌شنبه ۲۱:۰۰' },
+            ],
+            [
+              { text: 'جمعه ۱۷:۰۰', callback_data: 'add_date:جمعه ۱۷:۰۰' },
+              { text: 'جمعه ۱۹:۰۰', callback_data: 'add_date:جمعه ۱۹:۰۰' },
+            ],
+            [
+              { text: 'شنبه ۱۸:۰۰', callback_data: 'add_date:شنبه ۱۸:۰۰' },
+              { text: 'یکشنبه ۱۹:۰۰', callback_data: 'add_date:یکشنبه ۱۹:۰۰' },
+            ],
+            [
+              { text: '✅ اتمام انتخاب زمان و مرحله بعد', callback_data: 'done_dates' },
+            ],
+          ],
+        },
+      });
+      return;
+    }
+
+    // Step 2: Dates input
+    if (activeSession.step === 'awaiting_dates') {
+      const rawDates = text.split(/[\n,،]/).map((d) => d.trim()).filter((d) => d.length > 0);
+
+      let currentDates = [];
+      try {
+        currentDates = JSON.parse(activeSession.draftDatesJson || '[]');
+      } catch (e) {}
+
+      const combinedDates = [...currentDates, ...rawDates];
+
+      if (combinedDates.length === 0) {
+        await api.sendMessage({
+          chat_id: chatId,
+          text: 'لطفاً حداقل یک زمان بفرستید (مثلاً: پنج‌شنبه ۱۹:۰۰).',
+        });
+        return;
+      }
+
+      await db.update(botSessions)
+        .set({
+          draftDatesJson: JSON.stringify(combinedDates),
+          step: 'awaiting_places',
+          updatedAt: Date.now(),
+        })
+        .where(eq(botSessions.userId, userId))
+        .run();
+
+      const datesListStr = combinedDates.map((d, i) => `${toPersianDigits(i + 1)}. ${d}`).join('\n');
+
+      await api.sendMessage({
+        chat_id: chatId,
+        text:
+          `✅ <b>زمان‌های پیشنهادی ثبت شد:</b>\n${datesListStr}\n\n` +
+          `📍 <b>گام ۳ از ۳: مکان‌های پیشنهادی</b>\n` +
+          `نام مکان یا کافه مورد نظرت را بنویس یا از دکمه‌های زیر انتخاب کن.\n` +
+          `اگر هنوز مکان مشخص نیست، دکمه <b>«بدون مکان»</b> را بزن.`,
+        parse_mode: 'HTML',
+        reply_markup: {
+          inline_keyboard: [
+            [
+              { text: '☕ کافه', callback_data: 'add_place:کافه' },
+              { text: '🍕 رستوران', callback_data: 'add_place:رستوران' },
+            ],
+            [
+              { text: '🌳 پارک / فضای باز', callback_data: 'add_place:پارک / فضای باز' },
+              { text: '🏠 خونه', callback_data: 'add_place:خونه' },
+            ],
+            [
+              { text: '⏭️ بدون مکان (رد کردن)', callback_data: 'skip_places' },
+              { text: '✅ ساخت نهایی دورهمی', callback_data: 'done_places' },
+            ],
+          ],
+        },
+      });
+      return;
+    }
+
+    // Step 3: Places input
+    if (activeSession.step === 'awaiting_places') {
+      let rawPlaces = [];
+      const cleanText = text.trim();
+      if (cleanText !== 'رد' && cleanText !== 'ندارد' && cleanText !== 'خالی') {
+        rawPlaces = cleanText.split(/[\n,،]/).map((p) => p.trim()).filter((p) => p.length > 0);
+      }
+
+      let currentPlaces = [];
+      try {
+        currentPlaces = JSON.parse(activeSession.draftPlacesJson || '[]');
+      } catch (e) {}
+
+      const allPlaces = [...currentPlaces, ...rawPlaces];
+      const title = activeSession.draftTitle || 'دورهمی دوستانه';
+      const dates = JSON.parse(activeSession.draftDatesJson || '["پنج‌شنبه ۱۹:۰۰"]');
+      const targetChatId = activeSession.chatId;
+
+      await db.delete(botSessions).where(eq(botSessions.userId, userId)).run();
+      await createAndSendGathering(chatId, targetChatId, title, senderName, dates, allPlaces);
+      return;
+    }
   }
 
   // 6. Command: /poll or /status
@@ -267,7 +456,7 @@ export default async function (message, ctx) {
 
     let body = `📊 <b>وضعیت دورهمی: ${event.title}</b>\n`;
     body += `👤 برگزارکننده: <b>${event.organizerName}</b>\n`;
-    body += `👥 تعداد رأی‌دهندگان: <b>${toPersianDigits(totalVoters)} نفر</b>\n\n`;
+    body += `👥 تعداد شرکت‌کنندگان: <b>${toPersianDigits(totalVoters)} نفر</b>\n\n`;
 
     body += `📅 <b>زمان‌های پیشنهادی:</b>\n`;
     dates.forEach((d, idx) => {
@@ -300,7 +489,7 @@ export default async function (message, ctx) {
       reply_markup: {
         inline_keyboard: [
           [{ text: '🔄 به‌روزرسانی آمار', callback_data: `stats:${event.publicId}` }],
-          [{ text: '🌐 مشاهده در وبسایت', url: SITE_URL }],
+          [{ text: '🌐 مشاهده در وبسایت', url: `${SITE_URL}/e/${event.publicId}` }],
         ],
       },
     });
@@ -322,10 +511,10 @@ export default async function (message, ctx) {
       chat_id: chatId,
       text:
         `📖 <b>راهنمای ربات کی و کجا:</b>\n\n` +
-        `• <code>/new</code> — شروع ویزارد ساخت دورهمی با زمان و مکان دلخواه\n` +
+        `• <code>/new</code> — شروع ساخت دورهمی با دکمه‌های آسان زمان و مکان\n` +
         `• <code>/new عنوان | زمان‌ها | مکان‌ها</code> — ساخت سریع یک‌خطی\n` +
-        `• <code>/poll</code> یا <code>/status</code> — نمایش آمار زنده دورهمی\n` +
-        `• <code>/cancel</code> — انصراف از ساخت در حال انجام\n` +
+        `• <code>/status</code> یا <code>/poll</code> — مشاهده آمار زنده آرا\n` +
+        `• <code>/cancel</code> — لغو عملیات در حال انجام\n` +
         `• <code>/site</code> — آدرس وبسایت\n\n` +
         `💡 <b>مثال یک‌خطی:</b>\n` +
         `<code>/new کافه‌گردی | جمعه ۱۸:۰۰، شنبه ۱۹:۰۰ | کافه نادری</code>`,
@@ -335,8 +524,13 @@ export default async function (message, ctx) {
   }
 }
 
-async function createAndSendGathering(currentChatId, targetChatId, title, organizerName, dates, places) {
+export async function createAndSendGathering(currentChatId, targetChatId, title, organizerName, dates, places) {
   const publicId = Math.random().toString(36).substring(2, 10);
+
+  // Clean old event for this targetChat
+  try {
+    await db.delete(chatEvents).where(eq(chatEvents.chatId, String(targetChatId))).run();
+  } catch (e) {}
 
   // Save in SQLite database
   await db.insert(chatEvents).values({
@@ -361,7 +555,7 @@ async function createAndSendGathering(currentChatId, targetChatId, title, organi
     pollText += `\n\n📍 <b>مکان‌های پیشنهادی:</b>\n` + places.map((p) => `• ${p}`).join('\n');
   }
 
-  pollText += `\n\n👇 <i>برای ثبت یا تغییر رأی، روی زمان مورد نظرتان کلیک کنید:</i>`;
+  pollText += `\n\n👇 <i>برای ثبت یا تغییر رأی، روی دکمه‌های زیر کلیک کنید:</i>`;
 
   const keyboard = dates.map((d, i) => [
     {
@@ -382,7 +576,7 @@ async function createAndSendGathering(currentChatId, targetChatId, title, organi
   }
 
   keyboard.push([
-    { text: '📊 مشاهده آمار و اسامی', callback_data: `stats:${publicId}` },
+    { text: '📊 آمار و اسامی', callback_data: `stats:${publicId}` },
     { text: '🔄 به‌روزرسانی', callback_data: `refresh:${publicId}` },
   ]);
 

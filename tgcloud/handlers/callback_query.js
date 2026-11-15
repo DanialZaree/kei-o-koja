@@ -2,6 +2,7 @@ import { api, db } from 'sdk';
 import { eq, and } from 'sdk/db';
 import { chatEvents, tgVotes, botSessions } from '../schema.js';
 import { toPersianDigits, renderProgressBar } from '../lib/format.js';
+import { createAndSendGathering } from './message.js';
 
 const SITE_URL = 'https://kei-o-koja.vercel.app';
 
@@ -147,28 +148,297 @@ export default async function (cb, ctx) {
   if (data === 'cmd:new') {
     await api.answerCallbackQuery({ callback_query_id: cb.id });
     if (chatId) {
-      // Start session
+      try {
+        await db.delete(botSessions).where(eq(botSessions.userId, userId)).run();
+      } catch (e) {}
+
       await db.insert(botSessions).values({
         userId,
         chatId: String(chatId),
         step: 'awaiting_title',
+        draftDatesJson: JSON.stringify([]),
+        draftPlacesJson: JSON.stringify([]),
         updatedAt: Date.now(),
       }).run();
 
       await api.sendMessage({
         chat_id: chatId,
         text:
-          `📌 <b>عنوان دورهمی رو بفرست:</b>\n` +
-          `(مثلاً: <code>کافه‌گردی</code>، <code>فوتسال</code> یا <code>سینما</code>)\n\n` +
-          `یا به صورت یک‌خطی:\n` +
-          `<code>/new عنوان | زمان‌ها | مکان‌ها</code>`,
+          `📌 <b>گام ۱ از ۳: عنوان دورهمی</b>\n\n` +
+          `عنوان دورهمی را بفرست یا از گزینه‌های سریع زیر انتخاب کن:`,
         parse_mode: 'HTML',
+        reply_markup: {
+          inline_keyboard: [
+            [
+              { text: '☕ کافه‌گردی', callback_data: 'preset_title:کافه‌گردی' },
+              { text: '🍕 شام و رستوران', callback_data: 'preset_title:شام و رستوران' },
+            ],
+            [
+              { text: '⚽ فوتسال و ورزش', callback_data: 'preset_title:فوتسال' },
+              { text: '🎲 بردگیم و مافیا', callback_data: 'preset_title:بردگیم' },
+            ],
+            [
+              { text: '🎬 سینما', callback_data: 'preset_title:سینما' },
+              { text: '🏞️ طبیعت‌گردی', callback_data: 'preset_title:طبیعت‌گردی' },
+            ],
+          ],
+        },
       });
     }
     return;
   }
 
+  // 6. Wizard preset title selection
+  if (data.startsWith('preset_title:')) {
+    const title = data.replace('preset_title:', '').trim();
+    await api.answerCallbackQuery({
+      callback_query_id: cb.id,
+      text: `عنوان انتخاب شد: ${title}`,
+    });
+
+    try {
+      await db.delete(botSessions).where(eq(botSessions.userId, userId)).run();
+    } catch (e) {}
+
+    await db.insert(botSessions).values({
+      userId,
+      chatId: String(chatId),
+      step: 'awaiting_dates',
+      draftTitle: title,
+      draftDatesJson: JSON.stringify([]),
+      draftPlacesJson: JSON.stringify([]),
+      updatedAt: Date.now(),
+    }).run();
+
+    await api.sendMessage({
+      chat_id: chatId,
+      text:
+        `عنوان دورهمی: <b>${title}</b> ✍️\n\n` +
+        `🗓️ <b>گام ۲ از ۳: انتخاب زمان‌ها</b>\n` +
+        `روی دکمه‌های زیر کلیک کن تا زمان‌ها اضافه شوند، یا زمان دلخواهت را تایپ کن:\n\n` +
+        `<i>زمان‌های انتخاب شده تا الان: (هنوز انتخابی ثبت نشده)</i>`,
+      parse_mode: 'HTML',
+      reply_markup: {
+        inline_keyboard: getDateSelectionKeyboard([]),
+      },
+    });
+    return;
+  }
+
+  // 7. Add preset date
+  if (data.startsWith('add_date:')) {
+    const dateText = data.replace('add_date:', '').trim();
+
+    const session = await db.select()
+      .from(botSessions)
+      .where(eq(botSessions.userId, userId))
+      .get();
+
+    let currentDates = [];
+    try {
+      currentDates = JSON.parse(session?.draftDatesJson || '[]');
+    } catch (e) {}
+
+    if (!currentDates.includes(dateText)) {
+      currentDates.push(dateText);
+    }
+
+    await db.update(botSessions)
+      .set({
+        draftDatesJson: JSON.stringify(currentDates),
+        updatedAt: Date.now(),
+      })
+      .where(eq(botSessions.userId, userId))
+      .run();
+
+    await api.answerCallbackQuery({
+      callback_query_id: cb.id,
+      text: `«${dateText}» اضافه شد.`,
+    });
+
+    const datesListStr = currentDates
+      .map((d, i) => `<b>${toPersianDigits(i + 1)}.</b> ${d}`)
+      .join('\n');
+
+    await api.editMessageText({
+      chat_id: chatId,
+      message_id: messageId,
+      text:
+        `عنوان دورهمی: <b>${session?.draftTitle || 'دورهمی'}</b> ✍️\n\n` +
+        `🗓️ <b>زمان‌های انتخاب شده:</b>\n${datesListStr}\n\n` +
+        `می‌توانی زمان‌های بیشتری اضافه کنی یا برای رفتن به مرحله بعد دکمه تایید را بزنی:`,
+      parse_mode: 'HTML',
+      reply_markup: {
+        inline_keyboard: getDateSelectionKeyboard(currentDates),
+      },
+    });
+    return;
+  }
+
+  // 8. Done selecting dates -> Move to Places
+  if (data === 'done_dates') {
+    const session = await db.select()
+      .from(botSessions)
+      .where(eq(botSessions.userId, userId))
+      .get();
+
+    let currentDates = [];
+    try {
+      currentDates = JSON.parse(session?.draftDatesJson || '[]');
+    } catch (e) {}
+
+    if (currentDates.length === 0) {
+      // Default to weekend if none chosen
+      currentDates = ['پنج‌شنبه ۱۹:۰۰', 'جمعه ۱۸:۰۰'];
+    }
+
+    await db.update(botSessions)
+      .set({
+        draftDatesJson: JSON.stringify(currentDates),
+        step: 'awaiting_places',
+        updatedAt: Date.now(),
+      })
+      .where(eq(botSessions.userId, userId))
+      .run();
+
+    await api.answerCallbackQuery({ callback_query_id: cb.id });
+
+    const datesListStr = currentDates
+      .map((d, i) => `${toPersianDigits(i + 1)}. ${d}`)
+      .join('\n');
+
+    await api.sendMessage({
+      chat_id: chatId,
+      text:
+        `✅ <b>زمان‌ها ثبت شدند:</b>\n${datesListStr}\n\n` +
+        `📍 <b>گام ۳ از ۳: مکان‌های پیشنهادی</b>\n` +
+        `مکان‌ها را با دکمه‌های زیر انتخاب کن یا نام کافه/مکان را تایپ کن:`,
+      parse_mode: 'HTML',
+      reply_markup: {
+        inline_keyboard: getPlaceSelectionKeyboard([]),
+      },
+    });
+    return;
+  }
+
+  // 9. Add preset place
+  if (data.startsWith('add_place:')) {
+    const placeText = data.replace('add_place:', '').trim();
+
+    const session = await db.select()
+      .from(botSessions)
+      .where(eq(botSessions.userId, userId))
+      .get();
+
+    let currentPlaces = [];
+    try {
+      currentPlaces = JSON.parse(session?.draftPlacesJson || '[]');
+    } catch (e) {}
+
+    if (!currentPlaces.includes(placeText)) {
+      currentPlaces.push(placeText);
+    }
+
+    await db.update(botSessions)
+      .set({
+        draftPlacesJson: JSON.stringify(currentPlaces),
+        updatedAt: Date.now(),
+      })
+      .where(eq(botSessions.userId, userId))
+      .run();
+
+    await api.answerCallbackQuery({
+      callback_query_id: cb.id,
+      text: `«${placeText}» اضافه شد.`,
+    });
+
+    const placesListStr = currentPlaces.map((p) => `• ${p}`).join('\n');
+
+    await api.editMessageText({
+      chat_id: chatId,
+      message_id: messageId,
+      text:
+        `📍 <b>مکان‌های انتخاب شده:</b>\n${placesListStr}\n\n` +
+        `می‌توانی مکان‌های بیشتری اضافه کنی یا برای ساخت نهایی دکمه تایید را بزنی:`,
+      parse_mode: 'HTML',
+      reply_markup: {
+        inline_keyboard: getPlaceSelectionKeyboard(currentPlaces),
+      },
+    });
+    return;
+  }
+
+  // 10. Finish creating event (skip or done places)
+  if (data === 'skip_places' || data === 'done_places') {
+    await api.answerCallbackQuery({
+      callback_query_id: cb.id,
+      text: 'در حال ساخت دورهمی...',
+    });
+
+    const session = await db.select()
+      .from(botSessions)
+      .where(eq(botSessions.userId, userId))
+      .get();
+
+    const title = session?.draftTitle || 'دورهمی دوستانه';
+    let dates = [];
+    try {
+      dates = JSON.parse(session?.draftDatesJson || '[]');
+    } catch (e) {}
+    if (dates.length === 0) dates = ['پنج‌شنبه ۱۹:۰۰', 'جمعه ۱۸:۰۰'];
+
+    let places = [];
+    if (data === 'done_places') {
+      try {
+        places = JSON.parse(session?.draftPlacesJson || '[]');
+      } catch (e) {}
+    }
+
+    const targetChatId = session?.chatId || chatId;
+    await db.delete(botSessions).where(eq(botSessions.userId, userId)).run();
+
+    await createAndSendGathering(chatId, targetChatId, title, userName, dates, places);
+    return;
+  }
+
   await api.answerCallbackQuery({ callback_query_id: cb.id });
+}
+
+function getDateSelectionKeyboard(selectedDates) {
+  return [
+    [
+      { text: 'پنج‌شنبه ۱۹:۰۰', callback_data: 'add_date:پنج‌شنبه ۱۹:۰۰' },
+      { text: 'پنج‌شنبه ۲۱:۰۰', callback_data: 'add_date:پنج‌شنبه ۲۱:۰۰' },
+    ],
+    [
+      { text: 'جمعه ۱۷:۰۰', callback_data: 'add_date:جمعه ۱۷:۰۰' },
+      { text: 'جمعه ۱۹:۰۰', callback_data: 'add_date:جمعه ۱۹:۰۰' },
+    ],
+    [
+      { text: 'شنبه ۱۸:۰۰', callback_data: 'add_date:شنبه ۱۸:۰۰' },
+      { text: 'یکشنبه ۱۹:۰۰', callback_data: 'add_date:یکشنبه ۱۹:۰۰' },
+    ],
+    [
+      { text: '✅ اتمام انتخاب زمان و مرحله بعد', callback_data: 'done_dates' },
+    ],
+  ];
+}
+
+function getPlaceSelectionKeyboard(selectedPlaces) {
+  return [
+    [
+      { text: '☕ کافه', callback_data: 'add_place:کافه' },
+      { text: '🍕 رستوران', callback_data: 'add_place:رستوران' },
+    ],
+    [
+      { text: '🌳 پارک / فضای باز', callback_data: 'add_place:پارک / فضای باز' },
+      { text: '🏠 خونه', callback_data: 'add_place:خونه' },
+    ],
+    [
+      { text: '⏭️ بدون مکان (رد کردن)', callback_data: 'skip_places' },
+      { text: '✅ ساخت نهایی دورهمی', callback_data: 'done_places' },
+    ],
+  ];
 }
 
 async function updatePollMessage(chatId, messageId, publicId, showDetailedVoters = false) {
@@ -250,7 +520,7 @@ async function updatePollMessage(chatId, messageId, publicId, showDetailedVoters
   ]);
 
   keyboard.push([
-    { text: '🌐 باز کردن در وبسایت', url: SITE_URL },
+    { text: '🌐 باز کردن در وبسایت', url: `${SITE_URL}/e/${publicId}` },
   ]);
 
   try {
@@ -262,6 +532,6 @@ async function updatePollMessage(chatId, messageId, publicId, showDetailedVoters
       reply_markup: { inline_keyboard: keyboard },
     });
   } catch (err) {
-    // ignore if unchanged
+    // ignore unchanged message errors
   }
 }

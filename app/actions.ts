@@ -285,6 +285,15 @@ export async function addDateOptionAction(
     });
 
     revalidatePath(`/e/${publicId}`);
+
+    if (event.telegramChatId) {
+      const origin = process.env.NEXT_PUBLIC_SITE_URL || "";
+      sendTelegramNotification(
+        event.telegramChatId,
+        `📅 <b>زمان جدید به دورهمی «${event.title}» اضافه شد</b>\n\nزمان پیشنهادی: <b>${formatJalaliDateTime(validation.data)}</b>\n\n🔗 <a href="${origin}/e/${publicId}">مشاهده دورهمی و ثبت نظر</a>`
+      );
+    }
+
     return { ok: true };
   } catch (error) {
     console.error("Error adding date option:", error);
@@ -385,6 +394,15 @@ export async function deleteDateOptionAction(
     });
 
     revalidatePath(`/e/${publicId}`);
+
+    if (event.telegramChatId) {
+      const origin = process.env.NEXT_PUBLIC_SITE_URL || "";
+      sendTelegramNotification(
+        event.telegramChatId,
+        `🗑️ <b>حذف یکی از زمان‌ها در دورهمی «${event.title}»</b>\n\nیکی از گزینه‌های زمان پیشنهادی توسط مدیر حذف شد.\n\n🔗 <a href="${origin}/e/${publicId}">مشاهده آخرین وضعیت دورهمی</a>`
+      );
+    }
+
     return { ok: true };
   } catch (error) {
     console.error("Error deleting date option:", error);
@@ -434,6 +452,15 @@ export async function addPlaceOptionAction(
     });
 
     revalidatePath(`/e/${publicId}`);
+
+    if (event.telegramChatId) {
+      const origin = process.env.NEXT_PUBLIC_SITE_URL || "";
+      sendTelegramNotification(
+        event.telegramChatId,
+        `📍 <b>مکان جدید به دورهمی «${event.title}» اضافه شد</b>\n\nمکان پیشنهادی: <b>${validation.data.name}</b>\n\n🔗 <a href="${origin}/e/${publicId}">مشاهده دورهمی و ثبت نظر</a>`
+      );
+    }
+
     return { ok: true };
   } catch (error) {
     console.error("Error adding place option:", error);
@@ -535,6 +562,15 @@ export async function deletePlaceOptionAction(
     });
 
     revalidatePath(`/e/${publicId}`);
+
+    if (event.telegramChatId) {
+      const origin = process.env.NEXT_PUBLIC_SITE_URL || "";
+      sendTelegramNotification(
+        event.telegramChatId,
+        `🗑️ <b>حذف یکی از مکان‌ها در دورهمی «${event.title}»</b>\n\nیکی از گزینه‌های مکان پیشنهادی توسط مدیر حذف شد.\n\n🔗 <a href="${origin}/e/${publicId}">مشاهده آخرین وضعیت دورهمی</a>`
+      );
+    }
+
     return { ok: true };
   } catch (error) {
     console.error("Error deleting place option:", error);
@@ -637,6 +673,15 @@ export async function reopenEventAction(
     });
 
     revalidatePath(`/e/${publicId}`);
+
+    if (event.telegramChatId) {
+      const origin = process.env.NEXT_PUBLIC_SITE_URL || "";
+      sendTelegramNotification(
+        event.telegramChatId,
+        `🔄 <b>رأی‌گیری دورهمی «${event.title}» مجدداً باز شد!</b>\n\nتصمیم نهایی قبلی لغو شد و اعضا می‌توانند رأی خود را تغییر دهند.\n\n🔗 <a href="${origin}/e/${publicId}">مشاهده دورهمی و ثبت نظر</a>`
+      );
+    }
+
     return { ok: true };
   } catch (error) {
     console.error("Error reopening event:", error);

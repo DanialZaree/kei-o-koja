@@ -9,6 +9,7 @@ import { CopyButton, UrlCode } from "@/components/CopyButton";
 import { VoteForm } from "@/components/VoteForm";
 import { ResultsList } from "@/components/ResultsList";
 import { OrganizerPanel } from "@/components/OrganizerPanel";
+import { TelegramGroupCard } from "@/components/TelegramGroupCard";
 
 export const dynamic = "force-dynamic";
 
@@ -255,6 +256,29 @@ ${finalPlace ? `مکان: ${finalPlace.name}${finalPlace.url ? ` (${finalPlace.u
                 هشدار: این لینک را ذخیره کن. اگر گمش کنی، دیگر نمی‌توانی دورهمی را مدیریت کنی.
               </p>
             </div>
+            <div className="p-3.5 bg-sky-50 rounded-xl space-y-2 border border-sky-200">
+              <span className="text-xs font-semibold text-sky-950 block">
+                اتصال و فعال‌سازی در گروه تلگرام دوستان 🤖
+              </span>
+              <p className="text-xs text-sky-700">
+                با ارسال این لینک به گروه تلگرام یا زدن دکمه زیر، ربات در گروه فعال شده و نظرسنجی و تغییرات به طور خودکار اطلاع‌رسانی می‌شود.
+              </p>
+              <div className="flex items-center justify-between gap-2 flex-wrap pt-1">
+                <a
+                  href={`https://t.me/keiokojabot?startgroup=event_${event.publicId}`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-xs font-semibold text-white bg-sky-600 hover:bg-sky-700 px-3.5 py-2 rounded-lg transition flex items-center gap-1.5"
+                >
+                  <span>افزودن ربات به گروه تلگرام</span>
+                  <span dir="ltr">↗</span>
+                </a>
+                <CopyButton
+                  textToCopy={`https://t.me/keiokojabot?startgroup=event_${event.publicId}`}
+                  label="کپی لینک ربات برای گروه"
+                />
+              </div>
+            </div>
           </div>
         </section>
       )}
@@ -282,32 +306,39 @@ ${finalPlace ? `مکان: ${finalPlace.name}${finalPlace.url ? ` (${finalPlace.u
       <ResultsList results={results} />
 
       {isAdmin && (
-        <OrganizerPanel
-          publicId={event.publicId}
-          adminKey={event.adminKey}
-          status={event.status}
-          initialTitle={event.title}
-          initialDescription={event.description}
-          dateOptions={event.dateOptions.map((d) => ({
-            id: d.id,
-            startsAt: d.startsAt,
-            createdAt: d.createdAt,
-            changedAt: d.changedAt,
-          }))}
-          placeOptions={event.placeOptions.map((p) => ({
-            id: p.id,
-            name: p.name,
-            url: p.url,
-            note: p.note,
-            createdAt: p.createdAt,
-            changedAt: p.changedAt,
-          }))}
-          participants={event.participants.map((p) => ({
-            id: p.id,
-            name: p.name,
-            dateVotes: p.dateVotes.map((v) => ({ dateOptionId: v.dateOptionId })),
-          }))}
-        />
+        <section className="space-y-6">
+          <TelegramGroupCard
+            publicId={event.publicId}
+            eventTitle={event.title}
+            isLinked={!!event.telegramChatId}
+          />
+          <OrganizerPanel
+            publicId={event.publicId}
+            adminKey={event.adminKey}
+            status={event.status}
+            initialTitle={event.title}
+            initialDescription={event.description}
+            dateOptions={event.dateOptions.map((d) => ({
+              id: d.id,
+              startsAt: d.startsAt,
+              createdAt: d.createdAt,
+              changedAt: d.changedAt,
+            }))}
+            placeOptions={event.placeOptions.map((p) => ({
+              id: p.id,
+              name: p.name,
+              url: p.url,
+              note: p.note,
+              createdAt: p.createdAt,
+              changedAt: p.changedAt,
+            }))}
+            participants={event.participants.map((p) => ({
+              id: p.id,
+              name: p.name,
+              dateVotes: p.dateVotes.map((v) => ({ dateOptionId: v.dateOptionId })),
+            }))}
+          />
+        </section>
       )}
     </main>
   );

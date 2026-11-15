@@ -77,3 +77,42 @@ export async function GET(
   }
 }
 
+export async function PATCH(
+  request: Request,
+  { params }: { params: { publicId: string } }
+) {
+  const { publicId } = params;
+
+  try {
+    const body = await request.json();
+    const { chatId, messageId } = body;
+
+    const event = await prisma.event.findUnique({
+      where: { publicId },
+    });
+
+    if (!event) {
+      return NextResponse.json(
+        { ok: false, error: "دورهمی یافت نشد." },
+        { status: 404 }
+      );
+    }
+
+    const updated = await prisma.event.update({
+      where: { publicId },
+      data: {
+        telegramChatId: chatId ? String(chatId) : null,
+        telegramMessageId: messageId ? String(messageId) : undefined,
+      },
+    });
+
+    return NextResponse.json({ ok: true, event: updated });
+  } catch (error: any) {
+    console.error("Error updating telegramChatId in Next.js:", error);
+    return NextResponse.json(
+      { ok: false, error: error.message || "Database error" },
+      { status: 500 }
+    );
+  }
+}
+
