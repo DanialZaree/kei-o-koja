@@ -204,6 +204,15 @@ export async function saveVotesAction(
     });
 
     revalidatePath(`/e/${publicId}`);
+
+    if (event.telegramChatId) {
+      const origin = process.env.NEXT_PUBLIC_SITE_URL || "";
+      sendTelegramNotification(
+        event.telegramChatId,
+        `🗳️ <b>ثبت رأی جدید در وبسایت:</b>\n\n👤 <b>${displayName}</b> در نظرسنجی دورهمی «${event.title}» رأی داد.\n\n🔗 <a href="${origin}/e/${publicId}">مشاهده آمار زنده در وبسایت</a>`
+      );
+    }
+
     return { ok: true, message: "رأی‌ات با موفقیت ثبت شد." };
   } catch (error) {
     console.error("Error saving votes:", error);

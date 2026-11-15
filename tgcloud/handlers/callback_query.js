@@ -32,6 +32,15 @@ export default async function (cb, ctx) {
       return;
     }
 
+    if (event.status === 'FINALIZED') {
+      await api.answerCallbackQuery({
+        callback_query_id: cb.id,
+        text: '⚠️ این دورهمی نهایی شده و رأی‌گیری بسته است.',
+        show_alert: true,
+      });
+      return;
+    }
+
     const existing = await db.select()
       .from(tgVotes)
       .where(
@@ -82,6 +91,15 @@ export default async function (cb, ctx) {
       await api.answerCallbackQuery({
         callback_query_id: cb.id,
         text: 'دورهمی یافت نشد.',
+      });
+      return;
+    }
+
+    if (event.status === 'FINALIZED') {
+      await api.answerCallbackQuery({
+        callback_query_id: cb.id,
+        text: '⚠️ دورهمی نهایی شده و رأی‌گیری بسته است.',
+        show_alert: true,
       });
       return;
     }
@@ -139,12 +157,261 @@ export default async function (cb, ctx) {
     await updatePollMessage(chatId, messageId, publicId, false);
     await api.answerCallbackQuery({
       callback_query_id: cb.id,
-      text: 'لیست به‌روز شد.',
+      text: 'صفحه رویداد به‌روز شد.',
     });
     return;
   }
 
-  // 5. Command shortcut: cmd:new
+  // 5. Admin Menu entry: admin_menu:<publicId>
+  if (data.startsWith('admin_menu:')) {
+    const [, publicId] = data.split(':');
+    const event = await db.select()
+      .from(chatEvents)
+      .where(eq(chatEvents.publicId, publicId))
+      .get();
+
+    if (!event) {
+      await api.answerCallbackQuery({ callback_query_id: cb.id, text: 'رویداد یافت نشد.' });
+      return;
+    }
+
+    const isAuthorized = await checkIsAdminOrCreator(chatId, userId, event);
+    if (!isAuthorized) {
+      await api.answerCallbackQuery({
+        callback_query_id: cb.id,
+        text: '⛔ فقط سازنده این دورهمی یا مدیر گروه به بخش مدیریت دسترسی دارند.',
+        show_alert: true,
+      });
+      return;
+    }
+
+    await api.answerCallbackQuery({ callback_query_id: cb.id });
+
+    const isFinal = event.status === 'FINALIZED';
+    const adminKeyboard = [];
+
+    if (!isFinal) {
+      adminKeyboard.push([
+        { text: '🏁 تعیین زمان و مکان نهایی و اتمام رویداد', callback_data: `admin_final_step1:${publicId}` },
+      ]);
+    } else {
+      adminKeyboard.push([
+        { text: '🔄 بازگشایی مجدد رأی‌گیری', callback_data: `admin_reopen:${publicId}` },
+      ]);
+    }
+
+    adminKeyboard.push([
+      { text: '🔐 دریافت لینک مدیریت ویرایش (ارسال در پی‌وی)', callback_data: `admin_send_key:${publicId}` },
+    ]);
+
+    adminKeyboard.push([
+      { text: '🔙 بازگشت به رویداد', callback_data: `refresh:${publicId}` },
+    ]);
+
+    await api.editMessageText({
+      chat_id: chatId,
+      message_id: messageId,
+      text:
+        `⚙️ <b>پنل مدیریت برگزارکننده: ${event.title}</b>\n\n` +
+        `وضعیت فعلی: <b>${isFinal ? 'نهایی‌شده (بسته)' : 'در حال رأی‌گیری (باز)'}</b>\n\n` +
+        `از گزینه‌های زیر اقدام مورد نظرتان را انتخاب کنید:`,
+      parse_mode: 'HTML',
+      reply_markup: { inline_keyboard: adminKeyboard },
+    });
+    return;
+  }
+
+  // 6. Send secret admin URL exclusively to creator
+  if (data.startsWith('admin_send_key:')) {
+    const [, publicId] = data.split(':');
+    const event = await db.select()
+      .from(chatEvents)
+      .where(eq(chatEvents.publicId, publicId))
+      .get();
+
+    if (!event) return;
+
+    const isAuthorized = await checkIsAdminOrCreator(chatId, userId, event);
+    if (!isAuthorized) {
+      await api.answerCallbackQuery({
+        callback_query_id: cb.id,
+        text: '⛔ دسترسی غیرمجاز. فقط سازنده رویداد می‌تواند لینک مدیریت را دریافت کند.',
+        show_alert: true,
+      });
+      return;
+    }
+
+    const adminUrl = event.adminKey
+      ? `${SITE_URL}/e/${publicId}?admin=${event.adminKey}`
+      : `${SITE_URL}/e/${publicId}`;
+
+    try {
+      await api.sendMessage({
+        chat_id: userId,
+        text:
+          `🔐 <b>لینک مدیریت و ویرایش اختصاصی دورهمی «${event.title}»</b>\n\n` +
+          `با این لینک می‌توانید عنوان، تاریخ‌ها و مکان‌ها را در سایت ویرایش کنید:\n` +
+          `${adminUrl}\n\n` +
+          `⚠️ <i>این لینک محرمانه است و فقط برای شما ارسال شده؛ آن را در اختیار افراد دیگر قرار ندهید.</i>`,
+        parse_mode: 'HTML',
+      });
+      await api.answerCallbackQuery({
+        callback_query_id: cb.id,
+        text: 'لینک مدیریت در چت خصوصی (PV) ربات برای شما ارسال شد 📥',
+        show_alert: true,
+      });
+    } catch (e) {
+      await api.answerCallbackQuery({
+        callback_query_id: cb.id,
+        text: `لینک اختصاصی شما (فقط برای شما قابل رؤیت است):\n${adminUrl}`,
+        show_alert: true,
+      });
+    }
+    return;
+  }
+
+  // 7. Finalize Step 1: Pick Final Date
+  if (data.startsWith('admin_final_step1:')) {
+    const [, publicId] = data.split(':');
+    const event = await db.select()
+      .from(chatEvents)
+      .where(eq(chatEvents.publicId, publicId))
+      .get();
+
+    if (!event) return;
+
+    const isAuthorized = await checkIsAdminOrCreator(chatId, userId, event);
+    if (!isAuthorized) return;
+
+    await api.answerCallbackQuery({ callback_query_id: cb.id });
+
+    const dates = JSON.parse(event.datesJson || '[]');
+    const keyboard = dates.map((d, i) => [
+      { text: `🗓 زمان نهایی: ${d}`, callback_data: `admin_final_date:${publicId}:${i}` },
+    ]);
+    keyboard.push([{ text: '🔙 انصراف و بازگشت', callback_data: `admin_menu:${publicId}` }]);
+
+    await api.editMessageText({
+      chat_id: chatId,
+      message_id: messageId,
+      text:
+        `🏁 <b>گام ۱: انتخاب زمان قطعی دورهمی «${event.title}»</b>\n\n` +
+        `کدام زمان را به عنوان زمان نهایی دورهمی تأیید می‌کنید؟`,
+      parse_mode: 'HTML',
+      reply_markup: { inline_keyboard: keyboard },
+    });
+    return;
+  }
+
+  // 8. Finalize Step 2: Pick Final Place or Confirm
+  if (data.startsWith('admin_final_date:')) {
+    const [, publicId, rawDateIdx] = data.split(':');
+    const dateIdx = parseInt(rawDateIdx, 10);
+
+    const event = await db.select()
+      .from(chatEvents)
+      .where(eq(chatEvents.publicId, publicId))
+      .get();
+
+    if (!event) return;
+
+    const isAuthorized = await checkIsAdminOrCreator(chatId, userId, event);
+    if (!isAuthorized) return;
+
+    await api.answerCallbackQuery({ callback_query_id: cb.id });
+
+    const places = JSON.parse(event.placesJson || '[]');
+
+    if (places.length > 0) {
+      const keyboard = places.map((p, i) => [
+        { text: `📍 مکان نهایی: ${p}`, callback_data: `admin_final_finish:${publicId}:${dateIdx}:${i}` },
+      ]);
+      keyboard.push([
+        { text: '⏭️ بدون مکان مشخص (رد کردن)', callback_data: `admin_final_finish:${publicId}:${dateIdx}:-1` },
+      ]);
+      keyboard.push([
+        { text: '🔙 بازگشت', callback_data: `admin_final_step1:${publicId}` },
+      ]);
+
+      await api.editMessageText({
+        chat_id: chatId,
+        message_id: messageId,
+        text:
+          `🏁 <b>گام ۲: انتخاب مکان قطعی دورهمی «${event.title}»</b>\n\n` +
+          `مکان نهایی دورهمی را انتخاب کنید:`,
+        parse_mode: 'HTML',
+        reply_markup: { inline_keyboard: keyboard },
+      });
+      return;
+    }
+
+    // No places: Finish directly
+    await executeFinalize(chatId, messageId, publicId, dateIdx, -1, event, cb.id);
+    return;
+  }
+
+  // 9. Finalize Finish: execute finalization
+  if (data.startsWith('admin_final_finish:')) {
+    const [, publicId, rawDateIdx, rawPlaceIdx] = data.split(':');
+    const dateIdx = parseInt(rawDateIdx, 10);
+    const placeIdx = parseInt(rawPlaceIdx, 10);
+
+    const event = await db.select()
+      .from(chatEvents)
+      .where(eq(chatEvents.publicId, publicId))
+      .get();
+
+    if (!event) return;
+
+    const isAuthorized = await checkIsAdminOrCreator(chatId, userId, event);
+    if (!isAuthorized) return;
+
+    await executeFinalize(chatId, messageId, publicId, dateIdx, placeIdx, event, cb.id);
+    return;
+  }
+
+  // 10. Reopen event
+  if (data.startsWith('admin_reopen:')) {
+    const [, publicId] = data.split(':');
+    const event = await db.select()
+      .from(chatEvents)
+      .where(eq(chatEvents.publicId, publicId))
+      .get();
+
+    if (!event) return;
+
+    const isAuthorized = await checkIsAdminOrCreator(chatId, userId, event);
+    if (!isAuthorized) return;
+
+    // Call Next.js reopen API
+    try {
+      await fetch(`${SITE_URL}/api/tg/events/${publicId}/reopen`, {
+        method: 'POST',
+      });
+    } catch (e) {
+      console.error('Failed to call reopen API:', e);
+    }
+
+    await db.update(chatEvents)
+      .set({
+        status: 'OPEN',
+        finalDate: null,
+        finalPlace: null,
+      })
+      .where(eq(chatEvents.publicId, publicId))
+      .run();
+
+    await api.answerCallbackQuery({
+      callback_query_id: cb.id,
+      text: '🔄 دورهمی مجدداً بازگشایی شد و رأی‌گیری فعال است.',
+      show_alert: true,
+    });
+
+    await updatePollMessage(chatId, messageId, publicId);
+    return;
+  }
+
+  // 11. Command shortcut: cmd:new
   if (data === 'cmd:new') {
     await api.answerCallbackQuery({ callback_query_id: cb.id });
     if (chatId) {
@@ -188,7 +455,7 @@ export default async function (cb, ctx) {
     return;
   }
 
-  // 6. Wizard preset title selection
+  // 12. Wizard preset title selection
   if (data.startsWith('preset_title:')) {
     const title = data.replace('preset_title:', '').trim();
     await api.answerCallbackQuery({
@@ -225,7 +492,7 @@ export default async function (cb, ctx) {
     return;
   }
 
-  // 7. Add preset date
+  // 13. Add preset date
   if (data.startsWith('add_date:')) {
     const dateText = data.replace('add_date:', '').trim();
 
@@ -275,7 +542,7 @@ export default async function (cb, ctx) {
     return;
   }
 
-  // 8. Done selecting dates -> Move to Places
+  // 14. Done selecting dates -> Move to Places
   if (data === 'done_dates') {
     const session = await db.select()
       .from(botSessions)
@@ -288,7 +555,6 @@ export default async function (cb, ctx) {
     } catch (e) {}
 
     if (currentDates.length === 0) {
-      // Default to weekend if none chosen
       currentDates = ['پنج‌شنبه ۱۹:۰۰', 'جمعه ۱۸:۰۰'];
     }
 
@@ -321,7 +587,7 @@ export default async function (cb, ctx) {
     return;
   }
 
-  // 9. Add preset place
+  // 15. Add preset place
   if (data.startsWith('add_place:')) {
     const placeText = data.replace('add_place:', '').trim();
 
@@ -368,7 +634,7 @@ export default async function (cb, ctx) {
     return;
   }
 
-  // 10. Finish creating event (skip or done places)
+  // 16. Finish creating event (skip or done places)
   if (data === 'skip_places' || data === 'done_places') {
     await api.answerCallbackQuery({
       callback_query_id: cb.id,
@@ -397,11 +663,62 @@ export default async function (cb, ctx) {
     const targetChatId = session?.chatId || chatId;
     await db.delete(botSessions).where(eq(botSessions.userId, userId)).run();
 
-    await createAndSendGathering(chatId, targetChatId, title, userName, dates, places);
+    await createAndSendGathering(userId, targetChatId, title, userName, dates, places);
     return;
   }
 
   await api.answerCallbackQuery({ callback_query_id: cb.id });
+}
+
+async function checkIsAdminOrCreator(chatId, userId, event) {
+  if (event.creatorUserId && String(event.creatorUserId) === String(userId)) {
+    return true;
+  }
+  if (chatId) {
+    try {
+      const member = await api.getChatMember({ chat_id: chatId, user_id: Number(userId) });
+      if (['creator', 'administrator'].includes(member.status)) {
+        return true;
+      }
+    } catch (e) {}
+  }
+  return false;
+}
+
+async function executeFinalize(chatId, messageId, publicId, dateIdx, placeIdx, event, cbId) {
+  const dates = JSON.parse(event.datesJson || '[]');
+  const places = JSON.parse(event.placesJson || '[]');
+  const finalDate = dates[dateIdx] || 'زمان تعیین‌شده';
+  const finalPlace = placeIdx >= 0 ? places[placeIdx] : null;
+
+  // Call Next.js finalize API
+  try {
+    await fetch(`${SITE_URL}/api/tg/events/${publicId}/finalize`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ dateIndex: dateIdx, placeIndex: placeIdx }),
+    });
+  } catch (e) {
+    console.error('Failed to sync finalize to Next.js:', e);
+  }
+
+  // Update SQLite
+  await db.update(chatEvents)
+    .set({
+      status: 'FINALIZED',
+      finalDate,
+      finalPlace,
+    })
+    .where(eq(chatEvents.publicId, publicId))
+    .run();
+
+  await api.answerCallbackQuery({
+    callback_query_id: cbId,
+    text: '🎉 تصمیم نهایی ثبت شد و رویداد بسته شد.',
+    show_alert: true,
+  });
+
+  await updatePollMessage(chatId, messageId, publicId);
 }
 
 function getDateSelectionKeyboard(selectedDates) {
@@ -451,6 +768,34 @@ async function updatePollMessage(chatId, messageId, publicId, showDetailedVoters
 
   if (!event) return;
 
+  // 1. If Finalized, show final celebration card
+  if (event.status === 'FINALIZED') {
+    let finalMsg = `🎉 <b>قرار دورهمی «${event.title}» نهایی شد!</b>\n\n`;
+    finalMsg += `🗓 <b>زمان قطعی:</b> ${event.finalDate || 'تعیین شده در وبسایت'}\n`;
+    if (event.finalPlace) {
+      finalMsg += `📍 <b>مکان قطعی:</b> ${event.finalPlace}\n`;
+    }
+    finalMsg += `👤 برگزارکننده: <b>${event.organizerName}</b>\n\n`;
+    finalMsg += `<i>رأی‌گیری به پایان رسیده و تصمیم نهایی ثبت شده است.</i>`;
+
+    const finalKeyboard = [
+      [{ text: '🌐 مشاهده تصمیم نهایی در وبسایت', url: `${SITE_URL}/e/${publicId}` }],
+      [{ text: '⚙️ پنل مدیریت (بازگشایی و تنظیمات)', callback_data: `admin_menu:${publicId}` }],
+    ];
+
+    try {
+      await api.editMessageText({
+        chat_id: chatId,
+        message_id: messageId,
+        text: finalMsg,
+        parse_mode: 'HTML',
+        reply_markup: { inline_keyboard: finalKeyboard },
+      });
+    } catch (err) {}
+    return;
+  }
+
+  // 2. Open Event: show live poll
   const dates = JSON.parse(event.datesJson || '[]');
   const places = JSON.parse(event.placesJson || '[]');
   const votes = await db.select()
@@ -520,7 +865,11 @@ async function updatePollMessage(chatId, messageId, publicId, showDetailedVoters
   ]);
 
   keyboard.push([
-    { text: '🌐 باز کردن در وبسایت', url: `${SITE_URL}/e/${publicId}` },
+    { text: '⚙️ پنل مدیریت (ویژه برگزارکننده)', callback_data: `admin_menu:${publicId}` },
+  ]);
+
+  keyboard.push([
+    { text: '🌐 مشاهده در وبسایت', url: `${SITE_URL}/e/${publicId}` },
   ]);
 
   try {
@@ -531,7 +880,5 @@ async function updatePollMessage(chatId, messageId, publicId, showDetailedVoters
       parse_mode: 'HTML',
       reply_markup: { inline_keyboard: keyboard },
     });
-  } catch (err) {
-    // ignore unchanged message errors
-  }
+  } catch (err) {}
 }

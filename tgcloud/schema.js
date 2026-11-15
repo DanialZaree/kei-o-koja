@@ -10,6 +10,10 @@ export const chatEvents = table('chat_events', {
   placesJson: text('places_json'),
   status: text('status').default('OPEN'),
   messageId: integer('message_id'),
+  creatorUserId: text('creator_user_id'),
+  adminKey: text('admin_key'),
+  finalDate: text('final_date'),
+  finalPlace: text('final_place'),
 });
 
 export const tgVotes = table('tg_votes', {

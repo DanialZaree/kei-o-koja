@@ -48,7 +48,7 @@ export default async function (message, ctx) {
     return;
   }
 
-  // 3. Command: /start (Supports deep linking from website: /start event_<publicId>)
+  // 3. Command: /start (Supports deep linking: /start event_<publicId>)
   if (text.startsWith('/start')) {
     const parts = text.split(/\s+/);
     const startParam = parts[1] || '';
@@ -77,6 +77,8 @@ export default async function (message, ctx) {
             datesJson: JSON.stringify(dates.length > 0 ? dates : ['زمان در سایت مشخص شده']),
             placesJson: JSON.stringify(places),
             status: ev.status || 'OPEN',
+            creatorUserId: String(userId),
+            adminKey: ev.adminKey || null,
           }).run();
 
           // Notify Next.js backend to save telegramChatId
@@ -123,6 +125,10 @@ export default async function (message, ctx) {
           keyboard.push([
             { text: '📊 آمار آرا و اسامی', callback_data: `stats:${publicId}` },
             { text: '🔄 به‌روزرسانی', callback_data: `refresh:${publicId}` },
+          ]);
+
+          keyboard.push([
+            { text: '⚙️ پنل مدیریت (ویژه برگزارکننده)', callback_data: `admin_menu:${publicId}` },
           ]);
 
           keyboard.push([
@@ -212,7 +218,7 @@ export default async function (message, ctx) {
         .filter((p) => p.length > 0);
 
       const dates = rawDates.length > 0 ? rawDates : ['پنج‌شنبه ۱۹:۰۰', 'جمعه ۱۸:۰۰'];
-      await createAndSendGathering(chatId, chatId, title, senderName, dates, rawPlaces);
+      await createAndSendGathering(userId, chatId, title, senderName, dates, rawPlaces);
       return;
     }
 
@@ -423,7 +429,7 @@ export default async function (message, ctx) {
       const targetChatId = activeSession.chatId;
 
       await db.delete(botSessions).where(eq(botSessions.userId, userId)).run();
-      await createAndSendGathering(chatId, targetChatId, title, senderName, dates, allPlaces);
+      await createAndSendGathering(userId, targetChatId, title, senderName, dates, allPlaces);
       return;
     }
   }
@@ -465,7 +471,7 @@ export default async function (message, ctx) {
       const pct = totalVoters > 0 ? Math.round((count / totalVoters) * 100) : 0;
       const voters = optionVotes.map((v) => v.userName).join('، ');
 
-      body += `<b>${toPersianDigits(idx + 1)}. ${d}</b>\n`;
+      body += `<b>${toPersianDigits(idx + 1)}.</b> ${d}\n`;
       body += `${renderProgressBar(pct)} ${toPersianDigits(pct)}٪ (${toPersianDigits(count)} رأی)\n`;
       if (voters) {
         body += `  👥 <i>${voters}</i>\n`;
@@ -489,6 +495,7 @@ export default async function (message, ctx) {
       reply_markup: {
         inline_keyboard: [
           [{ text: '🔄 به‌روزرسانی آمار', callback_data: `stats:${event.publicId}` }],
+          [{ text: '⚙️ پنل مدیریت', callback_data: `admin_menu:${event.publicId}` }],
           [{ text: '🌐 مشاهده در وبسایت', url: `${SITE_URL}/e/${event.publicId}` }],
         ],
       },
@@ -536,8 +543,9 @@ export default async function (message, ctx) {
   }
 }
 
-export async function createAndSendGathering(currentChatId, targetChatId, title, organizerName, dates, places) {
+export async function createAndSendGathering(creatorUserId, targetChatId, title, organizerName, dates, places) {
   let publicId = Math.random().toString(36).substring(2, 10);
+  let adminKey = null;
 
   // Sync to PostgreSQL database via Next.js API so website link works immediately!
   try {
@@ -555,6 +563,7 @@ export async function createAndSendGathering(currentChatId, targetChatId, title,
     const json = await res.json();
     if (json && json.ok && json.event?.publicId) {
       publicId = json.event.publicId;
+      adminKey = json.event.adminKey || null;
     }
   } catch (err) {
     console.error('Failed to sync event creation to Next.js:', err);
@@ -565,7 +574,7 @@ export async function createAndSendGathering(currentChatId, targetChatId, title,
     await db.delete(chatEvents).where(eq(chatEvents.chatId, String(targetChatId))).run();
   } catch (e) {}
 
-  // Save in SQLite database
+  // Save in SQLite database with creatorUserId and adminKey
   await db.insert(chatEvents).values({
     chatId: String(targetChatId),
     publicId,
@@ -574,6 +583,8 @@ export async function createAndSendGathering(currentChatId, targetChatId, title,
     datesJson: JSON.stringify(dates),
     placesJson: JSON.stringify(places),
     status: 'OPEN',
+    creatorUserId: String(creatorUserId),
+    adminKey: adminKey,
   }).run();
 
   let pollText =
@@ -614,7 +625,11 @@ export async function createAndSendGathering(currentChatId, targetChatId, title,
   ]);
 
   keyboard.push([
-    { text: '🌐 باز کردن در وبسایت', url: SITE_URL },
+    { text: '⚙️ پنل مدیریت (ویژه برگزارکننده)', callback_data: `admin_menu:${publicId}` },
+  ]);
+
+  keyboard.push([
+    { text: '🌐 مشاهده در وبسایت', url: `${SITE_URL}/e/${publicId}` },
   ]);
 
   const sent = await api.sendMessage({
