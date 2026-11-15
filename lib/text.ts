@@ -19,7 +19,6 @@ export function toEnglishDigits(str: string): string {
     .replace(/[\u0660-\u0669]/g, (d) => String(d.charCodeAt(0) - 0x0660));
 }
 
-// normalize names so variations like "علی", "علي", and "علی‌" map to the same voter
 export function normalizeNameKey(name: string): string {
   let s = name.trim().replace(/\s+/g, " ");
   s = s.replace(/[\u0649\u064A]/g, "\u06CC"); // arabic yeh -> persian

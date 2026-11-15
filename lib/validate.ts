@@ -32,8 +32,8 @@ export function validateCreateEventInput(data: {
 
   // Title: 3 to 80 chars
   const title = typeof data.title === "string" ? data.title.trim() : "";
-  if (!title || title.length < 3 || title.length > 80) {
-    errors.title = "عنوان دورهمی باید بین ۳ تا ۸۰ کاراکتر باشد.";
+  if (!title || title.length < 2 || title.length > 80) {
+    errors.title = "عنوان دورهمی باید بین 2 تا 80 کاراکتر باشد.";
   }
 
   // Description: optional, max 500 chars
@@ -41,7 +41,7 @@ export function validateCreateEventInput(data: {
   if (typeof data.description === "string" && data.description.trim().length > 0) {
     const descTrimmed = data.description.trim();
     if (descTrimmed.length > 500) {
-      errors.description = "توضیحات دورهمی نمی‌تواند بیشتر از ۵۰۰ کاراکتر باشد.";
+      errors.description = "توضیحات دورهمی نمی‌تواند بیشتر از 500 کاراکتر باشد.";
     } else {
       description = descTrimmed;
     }
@@ -50,7 +50,7 @@ export function validateCreateEventInput(data: {
   // Organizer Name: 2 to 30 chars
   const organizerName = typeof data.organizerName === "string" ? data.organizerName.trim() : "";
   if (!organizerName || organizerName.length < 2 || organizerName.length > 30) {
-    errors.organizerName = "نام شما باید بین ۲ تا ۳۰ کاراکتر باشد.";
+    errors.organizerName = "نام شما باید بین 2 تا 30 کاراکتر باشد.";
   }
 
   // Dates: 1 to 10 dates, must be valid and in the future
@@ -60,7 +60,7 @@ export function validateCreateEventInput(data: {
   if (rawDates.length === 0) {
     errors.dates = "حداقل یک تاریخ پیشنهادی الزامی است.";
   } else if (rawDates.length > 10) {
-    errors.dates = "حداکثر ۱۰ تاریخ پیشنهادی مجاز است.";
+    errors.dates = "حداکثر 10 تاریخ پیشنهادی مجاز است.";
   } else {
     for (let i = 0; i < rawDates.length; i++) {
       const res = validateDateOptionInput(rawDates[i]);
@@ -77,7 +77,7 @@ export function validateCreateEventInput(data: {
   const cleanPlaces: { name: string; url: string | null; note: string | null }[] = [];
 
   if (rawPlaces.length > 10) {
-    errors.places = "حداکثر ۱۰ مکان پیشنهادی مجاز است.";
+    errors.places = "حداکثر 10 مکان پیشنهادی مجاز است.";
   } else {
     for (let i = 0; i < rawPlaces.length; i++) {
       const p = rawPlaces[i];

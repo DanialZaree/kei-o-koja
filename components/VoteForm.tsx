@@ -41,7 +41,7 @@ export function VoteForm({ publicId, dateOptions, placeOptions }: VoteFormProps)
         setName(savedName);
       }
     } catch {
-      // localStorage may not be accessible in private browsing
+
     }
   }, []);
 
@@ -78,10 +78,10 @@ export function VoteForm({ publicId, dateOptions, placeOptions }: VoteFormProps)
         try {
           localStorage.setItem("keio_koja_voter_name", name.trim());
         } catch {
-          // ignore
+          
         }
-        setSuccessMessage(res.message || "رأی‌ات با موفقیت ثبت شد!");
-        setTimeout(() => setSuccessMessage(null), 4000);
+        setSuccessMessage(`${name.trim()} عزیز، رأی شما با موفقیت ثبت شد!`);
+        setTimeout(() => setSuccessMessage(null), 6000);
       }
     } catch {
       setErrors({ form: "خطایی در ثبت رأی رخ داد. لطفاً دوباره امتحان کنید." });

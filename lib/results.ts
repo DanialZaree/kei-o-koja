@@ -97,7 +97,6 @@ export function calculateResults(
     };
   });
 
-  // Sort dates: count descending, then startsAt ascending
   dateItems.sort((a, b) => {
     if (b.count !== a.count) return b.count - a.count;
     return a.startsAt.getTime() - b.startsAt.getTime();
@@ -137,7 +136,6 @@ export function calculateResults(
     };
   });
 
-  // Sort places: count descending, then createdAt ascending
   placeItems.sort((a, b) => {
     if (b.count !== a.count) return b.count - a.count;
     return a.createdAt.getTime() - b.createdAt.getTime();

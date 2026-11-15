@@ -71,6 +71,7 @@ model DateVote {
   participant   Participant @relation(fields: [participantId], references: [id], onDelete: Cascade)
   dateOption    DateOption  @relation(fields: [dateOptionId], references: [id], onDelete: Cascade)
   @@id([participantId, dateOptionId])
+  @@index([dateOptionId])
 }
 
 model PlaceVote {

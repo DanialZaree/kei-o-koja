@@ -96,7 +96,8 @@ export default async function EventPage({ params, searchParams }: PageProps) {
   const finalMessageText = `قرار دورهمی: ${event.title}
 زمان: ${finalDate ? formatJalaliDateTime(finalDate.startsAt) : ""}
 ${finalPlace ? `مکان: ${finalPlace.name}${finalPlace.url ? ` (${finalPlace.url})` : ""}` : ""}
-مشاهده دورهمی: ${publicUrl}`;
+مشاهده دورهمی: ${publicUrl} 
+هماهنگ شده با کی و کجا`;
 
   return (
     <main className="space-y-6">

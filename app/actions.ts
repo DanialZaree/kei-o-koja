@@ -39,7 +39,6 @@ export async function createEventAction(data: {
 
   const { title, description, organizerName, dates, places } = validation.data;
   const publicId = generatePublicId();
-  // admin key is kept in plaintext in the link for zero-friction sharing without passwords
   const adminKey = generateAdminKey();
 
   try {
@@ -65,7 +64,7 @@ export async function createEventAction(data: {
         });
       }
 
-      // Create PlaceOptions if any
+      // Create PlaceOptions
       for (const p of places) {
         await tx.placeOption.create({
           data: {
@@ -126,7 +125,6 @@ export async function saveVotesAction(
 
   const { name, dateIds, placeIds } = validation.data;
 
-  // Validate IDs belong to this event
   const validDateIds = new Set(event.dateOptions.map((d) => d.id));
   for (const dId of dateIds) {
     if (!validDateIds.has(dId)) {
@@ -144,13 +142,13 @@ export async function saveVotesAction(
   const nameKey = normalizeNameKey(name);
   const displayName = cleanDisplayName(name);
 
-  // Check 50 participants limit
+  // Check 100 participants limit
   const existingParticipant = event.participants.find((p) => p.nameKey === nameKey);
-  if (!existingParticipant && event.participants.length >= 50) {
+  if (!existingParticipant && event.participants.length >= 100) {
     return {
       ok: false,
       errors: {
-        form: "ظرفیت شرکت‌کنندگان این دورهمی تکمیل شده است (حداکثر ۵۰ نفر).",
+        form: "ظرفیت شرکت‌کنندگان این دورهمی تکمیل شده است (حداکثر 100 نفر).",
       },
     };
   }
