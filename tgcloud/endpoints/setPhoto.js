@@ -8,12 +8,24 @@ export default async function (input, ctx) {
       return { ok: false, error: `Failed to download image: ${res.status}` };
     }
 
-    const arrayBuffer = await res.arrayBuffer();
-    const bytes = new Uint8Array(arrayBuffer);
+    const chunks = [];
+    for await (const chunk of res.body) {
+      chunks.push(chunk);
+    }
+    const totalLength = chunks.reduce((acc, c) => acc + c.length, 0);
+    const bytes = new Uint8Array(totalLength);
+    let offset = 0;
+    for (const chunk of chunks) {
+      bytes.set(chunk, offset);
+      offset += chunk.length;
+    }
 
-    // Call Telegram Bot API setMyProfilePhoto
+    // InputProfilePhotoStatic requires { type: 'static', photo: InputFile }
     const result = await api.setMyProfilePhoto({
-      photo: new InputFile(bytes, 'logo.png', { type: 'image/png' }),
+      photo: {
+        type: 'static',
+        photo: new InputFile(bytes, 'logo.png', { type: 'image/png' }),
+      },
     });
 
     return { ok: true, result };
